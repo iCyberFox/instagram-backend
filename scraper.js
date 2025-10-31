@@ -1,3 +1,4 @@
+`js
 const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
@@ -78,3 +79,4 @@ module.exports = async function scrapeInstagramComments(username, password, post
   await browser.close();
   return comments;
 };
+`
