@@ -3,7 +3,10 @@ const fs = require('fs');
 const path = require('path');
 
 module.exports = async function scrapeInstagramComments(username, password, postUrl) {
-  const browser = await puppeteer.launch({ headless: true });
+  const browser = await puppeteer.launch({
+  headless: true,
+  args: ['--no-sandbox', '--disable-setuid-sandbox']
+});
   const page = await browser.newPage();
 
   const cookiesPath = path.resolve(__dirname, 'cookies.json');
@@ -65,4 +68,5 @@ module.exports = async function scrapeInstagramComments(username, password, post
 
   await browser.close();
   return comments;
+
 };
