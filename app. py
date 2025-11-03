@@ -1,0 +1,94 @@
+import json
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+import instaloader
+import re
+from datetime import datetime
+import os
+
+# --- Ініціалізація та Конфігурація ---
+app = Flask(__name__)
+# Дозволяємо CORS, щоб фронтенд міг звертатися до бекенду
+CORS(app) 
+
+# Ініціалізація Instaloader для ГОСТЬОВОГО режиму
+# Instaloader.context буде намагатися завантажити дані без логіну
+L = instaloader.Instaloader(
+    save_metadata=False,
+    compress_json=False,
+    download_videos=False,
+    download_pictures=False,
+    download_geotags=False,
+    download_private_posts=False,
+    max_connection_attempts=1
+)
+
+# --- Допоміжні Функції ---
+
+def extract_shortcode(post_url):
+    """Витягує "shortcode" з URL-адреси поста Instagram."""
+    # Регулярний вираз для пошуку shortcode (частина URL після /p/ або /reel/)
+    match = re.search(r'/(?:p|reel)/([\w-]+)/', post_url)
+    if match:
+        return match.group(1)
+    return None
+
+def fetch_comments_public(shortcode):
+    """Отримує коментарі для shortcode без авторизації."""
+    try:
+        # 1. Спроба отримати об'єкт поста за shortcode
+        # Це працює лише для публічних постів і має обмеження по кількості коментарів.
+        post = instaloader.Post.from_shortcode(L.context, shortcode)
+        
+        comments_list = []
+        # Ітеруємося по коментарях. Instaloader може зупинитись на обмеженій кількості.
+        for comment in post.get_comments(): 
+            comments_list.append({
+                'name': comment.owner.username,
+                'text': comment.text,
+                'date': comment.date_utc.strftime('%Y-%m-%d %H:%M:%S') 
+            })
+        
+        return comments_list, None
+    
+    except instaloader.exceptions.PostException:
+        return None, "Пост не знайдено, можливо, він приватний або видалений."
+    except Exception as e:
+        # Усі інші помилки (наприклад, блокування IP від Instagram)
+        print(f"Помилка при отриманні коментарів без логіну: {e}")
+        return None, "Не вдалося отримати коментарі. Можливе тимчасове блокування IP від Instagram."
+
+
+# --- API Ендпоінт ---
+
+@app.route('/getInstagramComments', methods=['POST'])
+def get_instagram_comments():
+    try:
+        data = request.json
+        # Приймаємо лише postUrl
+        post_url = data.get('postUrl')
+
+        if not post_url:
+            return jsonify({"error": "Відсутній URL поста"}), 400
+
+        shortcode = extract_shortcode(post_url)
+        if not shortcode:
+            return jsonify({"error": "Невірний формат URL поста Instagram"}), 400
+
+        # Викликаємо функцію для публічного скрапінгу
+        comments, error = fetch_comments_public(shortcode)
+        
+        if error:
+            # Повертаємо помилку, отриману від функції
+            return jsonify({"error": error}), 500
+        
+        return jsonify({"comments": comments}), 200
+
+    except Exception as e:
+        print(f"Загальна помилка сервера: {e}")
+        return jsonify({"error": "Внутрішня помилка сервера. Перевірте лог Render."}), 500
+
+if __name__ == '__main__':
+    # Для локального тестування використовуйте порт 8080 або 5000
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
